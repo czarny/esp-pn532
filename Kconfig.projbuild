@@ -1,4 +1,13 @@
 menu "PN532 Options"
+	config PN532_I2C_PORT
+		int "I2C port used for communication."
+		default 0
+	config PN532_RESET_PIN
+		int "PN532 reset pin."
+		default 19
+	config PN532_IRQ_PIN
+		int "PN532 irq pin."
+		default 23
 	config ENABLE_IRQ_ISR
 		bool "Use IRQ pin instead of polling"
 		default true

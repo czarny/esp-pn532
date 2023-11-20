@@ -21,6 +21,7 @@
 #include "esp_system.h"
 #include "esp_log.h"
 #include "esp_err.h"
+#include "driver/i2c.h"
 #include <stdlib.h>
 
 #define TAG "PN532"
@@ -29,8 +30,9 @@ uint8_t pn532ack[] =
     {0x00, 0x00, 0xFF, 0x00, 0xFF, 0x00};
 uint8_t pn532response_firmwarevers[] =
     {0x00, 0xFF, 0x06, 0xFA, 0xD5, 0x03};
-uint8_t SDA_PIN, SCL_PIN, RESET_PIN, IRQ_PIN;
-i2c_port_t PN532_I2C_PORT;
+uint8_t PN532_RESET_PIN = CONFIG_PN532_RESET_PIN;
+uint8_t IRQ_PIN = CONFIG_PN532_IRQ_PIN;
+i2c_port_t PN532_I2C_PORT = CONFIG_PN532_I2C_PORT;
 uint8_t _uid[7];      // ISO14443A uid
 uint8_t _uidLen;      // uid len
 uint8_t _key[6];      // Mifare Classic key
@@ -64,10 +66,10 @@ bool SAMConfig(void);
  */
 static void resetPN532()
 {
-  gpio_set_level(RESET_PIN, 1);
-  gpio_set_level(RESET_PIN, 0);
+  gpio_set_level(PN532_RESET_PIN, 1);
+  gpio_set_level(PN532_RESET_PIN, 0);
   vTaskDelay(400 / portTICK_PERIOD_MS);
-  gpio_set_level(RESET_PIN, 1);
+  gpio_set_level(PN532_RESET_PIN, 1);
   vTaskDelay(10 / portTICK_PERIOD_MS); // Small delay required before taking other actions after reset.
   //	 See timing diagram on page 209 of the datasheet, section 12.23.
 }
@@ -180,15 +182,9 @@ static void IRAM_ATTR IRQHandler(void *arg)
  @return true if hw setup OK, false otherwise
  */
 /**************************************************************************/
-bool init_PN532_I2C(uint8_t sda, uint8_t scl, uint8_t reset, uint8_t irq, i2c_port_t i2c_port_number)
+bool init_PN532_I2C()
 {
-  SCL_PIN = scl;
-  SDA_PIN = sda;
-  RESET_PIN = reset;
-  IRQ_PIN = irq;
-  PN532_I2C_PORT = i2c_port_number;
-
-  uint64_t pintBitMask = ((1ULL) << RESET_PIN);
+  uint64_t pintBitMask = ((1ULL) << PN532_RESET_PIN);
 
   // initialize the PIN
   // Lets configure GPIO PIN for Reset
@@ -243,23 +239,6 @@ bool init_PN532_I2C(uint8_t sda, uint8_t scl, uint8_t reset, uint8_t irq, i2c_po
   // hook isr handler for specific gpio pin
   gpio_isr_handler_add(IRQ_PIN, IRQHandler, (void *)IRQ_PIN);
 #endif
-  i2c_config_t conf;
-  // Open the I2C Bus
-  conf.mode = I2C_MODE_MASTER;
-  conf.sda_io_num = SDA_PIN;
-  conf.sda_pullup_en = GPIO_PULLUP_DISABLE;
-  conf.scl_io_num = SCL_PIN;
-  conf.scl_pullup_en = GPIO_PULLUP_DISABLE;
-  conf.master.clk_speed = 100000;
-  conf.clk_flags = 0;
-
-  if (i2c_param_config(PN532_I2C_PORT, &conf) != ESP_OK)
-    return false;
-  if (i2c_driver_install(PN532_I2C_PORT, conf.mode, 0, 0, 0) != ESP_OK)
-    return false;
-  // Needed due to long wake up procedure on the first command on i2c bus. May be decreased
-  if (i2c_set_timeout(PN532_I2C_PORT, 400000) != ESP_OK)
-    return false;
 
   return true;
 }
