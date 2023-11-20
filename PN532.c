@@ -251,6 +251,7 @@ bool init_PN532_I2C(uint8_t sda, uint8_t scl, uint8_t reset, uint8_t irq, i2c_po
   conf.scl_io_num = SCL_PIN;
   conf.scl_pullup_en = GPIO_PULLUP_DISABLE;
   conf.master.clk_speed = 100000;
+  conf.clk_flags = 0;
 
   if (i2c_param_config(PN532_I2C_PORT, &conf) != ESP_OK)
     return false;
