@@ -93,7 +93,6 @@ void writecommand(uint8_t *cmd, uint8_t cmdlen)
   uint8_t *command = malloc(cmdlen + 9);
   bzero(command, cmdlen + 9);
 
-  vTaskDelay(10 / portTICK_PERIOD_MS);
   checksum = PN532_PREAMBLE + PN532_PREAMBLE + PN532_STARTCODE2;
 
   command[0] = PN532_I2C_ADDRESS;
@@ -255,18 +254,16 @@ bool init_PN532_I2C()
 bool readdata(uint8_t *buff, uint8_t n)
 {
   i2c_cmd_handle_t i2ccmd;
-  uint8_t *buffer = malloc(n + 3);
+  uint8_t *buffer = malloc(n);
 
-  vTaskDelay(10 / portTICK_PERIOD_MS);
-  bzero(buffer, n + 3);
+  bzero(buffer, n);
   bzero(buff, n);
 
   i2ccmd = i2c_cmd_link_create();
-  i2c_master_start(i2ccmd);
-  i2c_master_write_byte(i2ccmd, PN532_I2C_READ_ADDRESS, true);
-  for (uint8_t i = 0; i < (n + 2); i++)
+  // Transaction was started in isready function, just read rest of data
+  for (uint8_t i = 0; i < n - 1; i++)
     i2c_master_read_byte(i2ccmd, &buffer[i], I2C_MASTER_ACK);
-  i2c_master_read_byte(i2ccmd, &buffer[n + 2], I2C_MASTER_LAST_NACK);
+  i2c_master_read_byte(i2ccmd, &buffer[n - 1], I2C_MASTER_LAST_NACK);
   i2c_master_stop(i2ccmd);
 
   if (i2c_master_cmd_begin(PN532_I2C_PORT, i2ccmd, I2C_READ_TIMEOUT / portTICK_PERIOD_MS) != ESP_OK)
@@ -279,11 +276,11 @@ bool readdata(uint8_t *buff, uint8_t n)
 
   i2c_cmd_link_delete(i2ccmd);
 
-  memcpy(buff, buffer + 1, n);
+  memcpy(buff, buffer, n);
   // Start read (n+1 to take into account leading 0x01 with I2C)
 #ifdef CONFIG_PN532DEBUG
   ESP_LOGD(TAG, "Reading: ");
-  esp_log_buffer_hex(TAG, buffer, n + 3);
+  esp_log_buffer_hex(TAG, buffer, n);
 #endif
   free(buffer);
 
@@ -310,17 +307,22 @@ bool readack()
 /**************************************************************************/
 /*!
  @brief  Return true if the PN532 is ready with a response.
- @return true if IRQ signal LOW
+ @return true if i2c RDY flag is 1.
  */
 /**************************************************************************/
 bool isready()
 {
-  // I2C check if status is ready by IRQ line being pulled low.
-  uint8_t x = gpio_get_level(IRQ_PIN);
-#ifdef CONFIG_IRQDEBUG
-  ESP_LOGI(TAG, "IRQ: %d", x);
-#endif
-  return (x == 0);
+  uint8_t buffer;
+  i2c_cmd_handle_t i2ccmd;
+
+  i2ccmd = i2c_cmd_link_create();
+  i2c_master_start(i2ccmd);
+  i2c_master_write_byte(i2ccmd, PN532_I2C_READ_ADDRESS, true);
+  i2c_master_read_byte(i2ccmd, &buffer, I2C_MASTER_ACK);
+  i2c_master_cmd_begin(PN532_I2C_PORT, i2ccmd, I2C_READ_TIMEOUT / portTICK_PERIOD_MS);
+  i2c_cmd_link_delete(i2ccmd);
+
+  return buffer == 1;
 }
 
 /**************************************************************************/
@@ -424,9 +426,13 @@ uint32_t getPN532FirmwareVersion(void)
     return 0;
   }
 
+  if (!waitready(1000))
+  {
+    return 0;
+  }
+
   // read data packet
   readdata(pn532_packetbuffer, 12);
-
   // check some basic stuff
   if (0 != strncmp((char *)pn532_packetbuffer, (char *)pn532response_firmwarevers, 6))
   {
@@ -578,6 +584,11 @@ bool SAMConfig(void)
   if (!sendCommandCheckAck(pn532_packetbuffer, 4, I2C_WRITE_TIMEOUT))
     return false;
 
+  if (!waitready(1000))
+  {
+    return false;
+  }
+
   // read data packet
   readdata(pn532_packetbuffer, 50);
 
@@ -655,6 +666,7 @@ bool readPassiveTargetID(uint8_t cardbaudrate, uint8_t *uid, uint8_t *uidLength,
 
   // read data packet
   readdata(pn532_packetbuffer, 20);
+
   // check some basic stuff
 
   /* ISO14443A card response should be in the following format:
@@ -1371,6 +1383,11 @@ uint8_t ntag2xx_ReadPage(uint8_t page, uint8_t *buffer)
 #ifdef CONFIG_MIFAREDEBUG
     ESP_LOGD(TAG, "Failed to receive ACK for write command");
 #endif
+    return 0;
+  }
+
+  if (!waitready(30000))
+  {
     return 0;
   }
 
