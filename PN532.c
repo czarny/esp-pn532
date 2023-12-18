@@ -254,13 +254,15 @@ bool init_PN532_I2C()
 bool readdata(uint8_t *buff, uint8_t n)
 {
   i2c_cmd_handle_t i2ccmd;
+  uint8_t ready;
   uint8_t *buffer = malloc(n);
-
   bzero(buffer, n);
   bzero(buff, n);
 
   i2ccmd = i2c_cmd_link_create();
-  // Transaction was started in isready function, just read rest of data
+  i2c_master_start(i2ccmd);
+  i2c_master_write_byte(i2ccmd, PN532_I2C_READ_ADDRESS, true);
+  i2c_master_read_byte(i2ccmd, &ready, I2C_MASTER_ACK);
   for (uint8_t i = 0; i < n - 1; i++)
     i2c_master_read_byte(i2ccmd, &buffer[i], I2C_MASTER_ACK);
   i2c_master_read_byte(i2ccmd, &buffer[n - 1], I2C_MASTER_LAST_NACK);
@@ -318,7 +320,8 @@ bool isready()
   i2ccmd = i2c_cmd_link_create();
   i2c_master_start(i2ccmd);
   i2c_master_write_byte(i2ccmd, PN532_I2C_READ_ADDRESS, true);
-  i2c_master_read_byte(i2ccmd, &buffer, I2C_MASTER_ACK);
+  i2c_master_read_byte(i2ccmd, &buffer, I2C_MASTER_NACK);
+  i2c_master_stop(i2ccmd);
   i2c_master_cmd_begin(PN532_I2C_PORT, i2ccmd, I2C_READ_TIMEOUT / portTICK_PERIOD_MS);
   i2c_cmd_link_delete(i2ccmd);
 
